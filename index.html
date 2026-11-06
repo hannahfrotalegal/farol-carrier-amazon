@@ -185,6 +185,7 @@
   .pub-bar{height:8px;background:#e5e7eb;border-radius:99px;overflow:hidden;display:none}.pub-bar.on{display:block}
   .pub-bar>div{height:100%;width:0;background:var(--orange);transition:width .2s}
   .lg-ok{display:none;font-size:12.5px;color:var(--green)}
+  body.is-amazon .tab-adm{display:none}
 </style>
 </head>
 <body>
@@ -520,15 +521,17 @@
 <div class="wrap view" id="view-usuarios">
   <div class="note"><b>Dar acesso a alguém = 2 passos.</b> (1) No Firebase: <b>Authentication › Usuários › Adicionar usuário</b> (e-mail e senha).
     (2) Aqui: cadastrar o mesmo e-mail com o perfil e a(s) sigla(s). O painel aplica o filtro sozinho pelo e-mail — e o filtro vale no <b>servidor</b> (regras do banco), não no navegador.
-    Usuário com duas siglas vê os dados das duas (o pacote combinado entra na próxima publicação). Desativar corta o acesso no próximo login.</div>
+    Usuário com duas siglas escolhe a transportadora num seletor no topo (a visão somada das duas entra numa publicação futura, se pedida). Desativar corta o acesso no próximo login. <b>Perfis:</b> <b>Transportadora</b> = 1 transportadora · <b>Amazon</b> = uma, várias ou todas (sem Acessos e Publicar) · <b>Admin Demarco</b> = tudo.</div>
   <div class="kpis" id="acKpis"></div>
   <div class="ac-grid">
     <div class="panel ac-form">
       <h3 id="acFormTit">Adicionar usuário</h3>
       <div class="lg-f"><label for="acMail">E-mail de login</label><input id="acMail" type="email" placeholder="nome@transportadora.com.br"></div>
       <div class="lg-f"><label for="acNome">Nome / área</label><input id="acNome" type="text" placeholder="ex.: Segurança — Losung"></div>
-      <div class="lg-f"><label for="acPerfil">Perfil</label><select id="acPerfil"><option value="transportadora">Transportadora (vê só os próprios dados)</option><option value="admin">Admin Demarco / Amazon (vê tudo + Acessos + Publicar)</option></select></div>
-      <div class="lg-f" id="acSigBox"><label>Transportadora(s)</label>
+      <div class="lg-f"><label for="acPerfil">Perfil</label><select id="acPerfil"><option value="transportadora">Transportadora — vê só os dados de 1 transportadora</option><option value="amazon">Amazon — vê as transportadoras escolhidas (sem Acessos e Publicar)</option><option value="admin">Admin Demarco — vê tudo + Acessos + Publicar</option></select></div>
+      <div class="lg-f" id="acSigBox"><label id="acSigLbl">Transportadora</label>
+        <div class="ac-row" id="acSigBtns" style="display:none;margin-bottom:6px"><button class="btn" id="acTodas" type="button">Selecionar todas</button><button class="btn ghost" id="acNenhuma" type="button">Limpar seleção</button></div>
+        <div id="acTodasTag" class="ac-chip adm" style="display:none;margin-bottom:6px">Todas as transportadoras — inclusive as que entrarem depois</div>
         <input id="acSigBusca" type="text" placeholder="filtrar por sigla ou nome" style="margin-bottom:6px">
         <div class="ac-sig" id="acSig"></div></div>
       <div class="lg-f"><label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink)"><input type="checkbox" id="acAtivo" checked style="width:auto"> Acesso ativo</label></div>
@@ -580,7 +583,9 @@
   const auth=firebase.auth(), db=firebase.firestore(), FV=firebase.firestore.FieldValue, Blob_=firebase.firestore.Blob;
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const normMail=m=>String(m||'').trim().toLowerCase();
-  const keyOf=u=>u.perfil==='admin'?'_ALL':[...(u.siglas||[])].sort().join('+');
+  const veTudo=u=>u.perfil==='admin'||(u.perfil==='amazon'&&!!u.todas);
+  const keyOf=u=>veTudo(u)?'_ALL':[...(u.siglas||[])].sort().join('+');
+  let TODAS=false;
   let SNAP=null, SESS=null, CONF={siglas:{},comDados:[],chaves:[]}, USERS=[], EDIT=null, SEL=new Set();
   const nomeS=s=>CONF.siglas[s]||s;
   const PK={};
@@ -612,15 +617,20 @@
   }
   function rotulo(key){return key==='_ALL'?'todas as transportadoras':key.split('+').map(s=>s+' · '+nomeS(s)).join(' + ')}
   function header(){
-    const u=SESS.user, adm=u.perfil==='admin';
-    $('ubAv').textContent=adm?'DM':(u.siglas[0]||'?').slice(0,2);
-    $('ubNm').textContent=u.email; $('ubRl').textContent=adm?'Administrador':'Transportadora · '+u.siglas.join(' + '); $('userbar').title=(u.nome||'')+' — '+u.email;
-    $('scope').className=adm?'scope adm':'scope';
-    $('scope').textContent=adm?(SESS.view==='_ALL'?'Visão admin · todas as transportadoras':'Visão admin · vendo como '+rotulo(SESS.view)):'Dados exclusivos de '+rotulo(SESS.view);
-    if(adm){$('ubAsBox').style.display='flex';$('ubAs').value=[...$('ubAs').options].some(o=>o.value===SESS.view)?SESS.view:'_ALL';}
-    document.title='Farol Pré-Viagem — '+(adm?'Admin':SESS.view);
+    const u=SESS.user, adm=u.perfil==='admin', amz=u.perfil==='amazon', tudo=veTudo(u);
+    $('ubAv').textContent=adm?'DM':amz?'AZ':(u.siglas[0]||'?').slice(0,2);
+    $('ubNm').textContent=u.email; $('ubRl').textContent=adm?'Admin Demarco':amz?'Amazon':'Transportadora · '+u.siglas.join(' + '); $('userbar').title=(u.nome||'')+' — '+u.email;
+    $('scope').className=(adm||amz)?'scope adm':'scope';
+    const quem=adm?'Visão admin':'Visão Amazon';
+    $('scope').textContent=(adm||amz)?(SESS.view==='_ALL'?quem+' · todas as transportadoras':quem+' · '+rotulo(SESS.view)):'Dados exclusivos de '+rotulo(SESS.view);
+    const multi=!tudo&&SESS.opcoes&&SESS.opcoes.length>1;
+    $('ubAsBox').querySelector('label').textContent=adm?'Visualizar como':'Transportadora';
+    if(tudo||multi){$('ubAsBox').style.display='flex';$('ubAs').value=[...$('ubAs').options].some(o=>o.value===SESS.view)?SESS.view:$('ubAs').options[0].value;}
+    else $('ubAsBox').style.display='none';
+    document.title='Farol Pré-Viagem — '+(adm?'Admin':amz?'Amazon':SESS.view);
   }
   async function verComo(key){
+    if(SESS&&!veTudo(SESS.user)&&!(SESS.opcoes||[]).includes(key)) return;
     const ok=await runApp(key).catch(e=>{alertMsg('Não consegui abrir os dados de '+key+': '+e.message);return null});
     if(ok===false){alertMsg('Ainda não há dados publicados para '+rotulo(key)+'.');return;}
     if(ok){SESS.view=key; header();}
@@ -637,7 +647,7 @@
   // ---------------- login (Firebase Auth) ----------------
   const err=m=>{$('lgOk').style.display='none';$('lgErr').textContent=m;$('lgErr').style.display='block'};
   const ok=m=>{$('lgErr').style.display='none';$('lgOk').textContent=m;$('lgOk').style.display='block'};
-  function travar(msg){document.body.classList.add('locked');document.body.classList.remove('is-admin','is-carrier');if(msg)err(msg);$('lgBtn').disabled=false;$('lgBtn').textContent='Entrar';}
+  function travar(msg){document.body.classList.add('locked');document.body.classList.remove('is-admin','is-carrier','is-amazon');if(msg)err(msg);$('lgBtn').disabled=false;$('lgBtn').textContent='Entrar';}
   window.__boot=function(){
     SNAP=[...document.querySelectorAll('.wrap.view')].filter(v=>!['view-usuarios','view-publicar'].includes(v.id)).map(v=>[v.id,v.innerHTML]);
     document.body.classList.add('locked');
@@ -651,16 +661,27 @@
       }catch(e){ if(isMaster(email)) u={email,nome:'Admin Demarco',perfil:'admin',siglas:[],ativo:true}; }
       if(isMaster(email)&&u) u.perfil='admin', u.ativo=true;
       if(!u||!u.ativo){await auth.signOut();travar('O e-mail '+email+' ainda não tem acesso ao painel. Fale com a Demarco.');return;}
-      if(u.perfil!=='admin'&&!u.siglas.length){await auth.signOut();travar('Seu e-mail ainda não está ligado a nenhuma transportadora. Fale com a Demarco.');return;}
+      if(!['admin','amazon','transportadora'].includes(u.perfil)){await auth.signOut();travar('Perfil inválido para '+email+'. Fale com a Demarco.');return;}
+      if(!veTudo(u)&&!u.siglas.length){await auth.signOut();travar('Seu e-mail ainda não está ligado a nenhuma transportadora. Fale com a Demarco.');return;}
       SESS={user:u, view:keyOf(u)};
-      document.body.classList.toggle('is-admin',u.perfil==='admin'); document.body.classList.toggle('is-carrier',u.perfil!=='admin');
-      try{ if(u.perfil==='admin'){await carregarConf();preencherVerComo();} else {const c=await db.doc('paineis/'+SESS.view).get(); if(c.exists&&c.data().nomes) CONF.siglas=c.data().nomes;} }catch(e){}
+      document.body.classList.toggle('is-admin',u.perfil==='admin'); document.body.classList.toggle('is-amazon',u.perfil==='amazon'); document.body.classList.toggle('is-carrier',u.perfil==='transportadora');
+      if(veTudo(u)){ try{await carregarConf();preencherVerComo();}catch(e){} }
+      else {
+        // transportadora (ou Amazon com algumas transportadoras): pacote combinado se existir; senão, cada sigla com um seletor no topo
+        const cand=(u.siglas.length>1?[SESS.view]:[]).concat([...u.siglas].sort()); const disp=[];
+        for(const k of cand){ try{const c=await db.doc('paineis/'+k).get(); if(c.exists){disp.push(k); Object.assign(CONF.siglas,c.data().nomes||{});}}catch(e){} }
+        if(!disp.length){ await auth.signOut(); travar('Ainda não há dados publicados para '+u.siglas.join(' + ')+'. Fale com a Demarco.'); return; }
+        SESS.opcoes=disp; SESS.view=disp[0];
+        if(disp.length>1){ $('ubAs').innerHTML=disp.map(k=>'<option value="'+k+'">'+(k.includes('+')?'Todas as minhas ('+k.split('+').join(' + ')+')':k+' · '+esc(nomeS(k)))+'</option>').join('');
+          $('ubAs').onchange=function(){verComo(this.value)}; }
+      }
       document.body.classList.remove('locked');
       let okRun=null;
       try{ okRun=await runApp(SESS.view); }catch(e){ okRun=null; alertMsg('Erro ao carregar os dados: '+e.message); }
       if(okRun===false){
         if(u.perfil==='admin'){ header(); alertMsg('Ainda não há dados publicados. Use a aba ⬆ Publicar.'); document.querySelector('#tabPublicar').click(); }
-        else { await auth.signOut(); travar(u.siglas.length>1?'O acesso combinado ('+u.siglas.join(' + ')+') será liberado na próxima atualização do painel.':'Ainda não há dados publicados para '+u.siglas[0]+'.'); }
+        else if(veTudo(u)){ await auth.signOut(); travar('Ainda não há dados publicados no painel. Fale com a Demarco.'); }
+        else { await auth.signOut(); travar('Ainda não há dados publicados para '+u.siglas.join(' + ')+'. Fale com a Demarco.'); }
         return;
       }
       header();
@@ -683,35 +704,46 @@
 
   // ---------------- aba Acessos (admin) — grava em usuarios/{email} ----------------
   function todas(){return Object.keys(CONF.siglas||{}).sort();}
-  function sigList(filtro){const f=(filtro||'').toLowerCase();
+  function perfilUI(){const p=$('acPerfil').value;
+    $('acSigBox').style.display=p==='admin'?'none':'';
+    $('acSigBtns').style.display=p==='amazon'?'flex':'none';
+    $('acTodasTag').style.display=(p==='amazon'&&TODAS)?'inline-block':'none';
+    $('acSigLbl').textContent=p==='amazon'?'Transportadoras que este usuário Amazon vê':'Transportadora (escolha uma)';
+    if(p==='transportadora'&&SEL.size>1) SEL=new Set([[...SEL].sort()[0]]);
+    if(p!=='amazon') TODAS=false;
+    sigList($('acSigBusca').value);}
+  function sigList(filtro){const f=(filtro||'').toLowerCase(), tp=$('acPerfil').value==='transportadora'?'radio':'checkbox';
     $('acSig').innerHTML=todas().filter(s=>!f||(s+' '+nomeS(s)).toLowerCase().includes(f)).map(s=>
-      '<label><input type="checkbox" value="'+s+'"'+(SEL.has(s)?' checked':'')+' style="width:auto"> <b>'+s+'</b> '+esc(nomeS(s))+
+      '<label><input type="'+tp+'" name="acSigR" value="'+s+'"'+((SEL.has(s)||TODAS)?' checked':'')+' style="width:auto"> <b>'+s+'</b> '+esc(nomeS(s))+
       ((CONF.comDados||[]).includes(s)?'':'<span class="sd">sem dados</span>')+'</label>').join('')||'<div style="color:var(--muted);font-size:12.5px;padding:6px">Publique os dados primeiro (aba ⬆ Publicar) para carregar a lista de transportadoras.</div>';}
-  function limpar(){EDIT=null;SEL=new Set();$('acFormTit').textContent='Adicionar usuário';$('acMail').value='';$('acMail').disabled=false;$('acNome').value='';
-    $('acPerfil').value='transportadora';$('acAtivo').checked=true;$('acSigBusca').value='';$('acSigBox').style.display='';sigList('');}
-  function editar(u){EDIT={email:u.email};SEL=new Set(u.siglas||[]);$('acFormTit').textContent='Editar usuário';$('acMail').value=u.email;$('acMail').disabled=true;
+  function limpar(){EDIT=null;SEL=new Set();TODAS=false;$('acFormTit').textContent='Adicionar usuário';$('acMail').value='';$('acMail').disabled=false;$('acNome').value='';
+    $('acPerfil').value='transportadora';$('acAtivo').checked=true;$('acSigBusca').value='';perfilUI();}
+  function editar(u){EDIT={email:u.email};TODAS=u.perfil==='amazon'&&!!u.todas;SEL=new Set(u.siglas||[]);$('acFormTit').textContent='Editar usuário';$('acMail').value=u.email;$('acMail').disabled=true;
     $('acNome').value=u.nome||'';$('acPerfil').value=u.perfil;$('acAtivo').checked=!!u.ativo;$('acSigBusca').value='';
-    $('acSigBox').style.display=u.perfil==='admin'?'none':'';sigList('');window.scrollTo({top:0,behavior:'smooth'});}
+    perfilUI();window.scrollTo({top:0,behavior:'smooth'});}
   function msg(t,okk){$('acMsg').textContent=t;$('acMsg').className='ac-msg '+(okk?'ok':'err')}
   async function carregarUsers(){const qs=await db.collection('usuarios').get(); USERS=qs.docs.map(d=>Object.assign({email:d.id},d.data(),{siglas:[...(d.data().siglas||[])]}));}
   async function salvar(){
-    const m=normMail($('acMail').value), perfil=$('acPerfil').value, sig=perfil==='admin'?[]:[...SEL].sort();
+    const m=normMail($('acMail').value), perfil=$('acPerfil').value, todasAmz=perfil==='amazon'&&TODAS, sig=(perfil==='admin'||todasAmz)?[]:[...SEL].sort();
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) return msg('E-mail inválido.');
     if(!EDIT&&USERS.some(x=>normMail(x.email)===m)) return msg('Este e-mail já está cadastrado — use Editar.');
-    if(perfil==='transportadora'&&!sig.length) return msg('Escolha pelo menos uma transportadora.');
+    if(perfil==='transportadora'&&sig.length!==1) return msg('Perfil Transportadora: escolha uma transportadora.');
+    if(perfil==='amazon'&&!todasAmz&&!sig.length) return msg('Escolha as transportadoras ou clique em "Selecionar todas".');
     if(isMaster(m)&&(perfil!=='admin'||!$('acAtivo').checked)) return msg('Os e-mails master são sempre admin ativos.');
-    const rec={nome:$('acNome').value.trim(),perfil,siglas:sig,ativo:$('acAtivo').checked,atualizadoEm:FV.serverTimestamp(),atualizadoPor:SESS.user.email};
+    const rec={nome:$('acNome').value.trim(),perfil,siglas:sig,todas:todasAmz,ativo:$('acAtivo').checked,atualizadoEm:FV.serverTimestamp(),atualizadoPor:SESS.user.email};
     $('acSalvar').disabled=true;
     try{ await db.doc('usuarios/'+m).set(rec); }catch(e){ $('acSalvar').disabled=false; return msg('Não consegui salvar: '+e.message); }
     $('acSalvar').disabled=false;
-    const eraEdit=!!EDIT, k=keyOf({perfil,siglas:sig});
-    const aviso=perfil==='transportadora'&&!(CONF.chaves||[]).includes(k)?' Os dados '+(sig.length>1?'combinados ('+k+') ':'')+'entram na próxima publicação — avise o Claude.':'';
+    const eraEdit=!!EDIT, k=keyOf({perfil,siglas:sig,todas:todasAmz});
+    const semDados=sig.filter(s=>!(CONF.comDados||[]).includes(s));
+    const aviso=(perfil==='admin'||todasAmz)?'':(semDados.length?' Ainda não há dados de '+semDados.join(', ')+'.':'')+
+      (sig.length>1&&!(CONF.chaves||[]).includes(k)?' Ele escolhe a transportadora num seletor no topo do painel (uma por vez); se quiser a visão somada dessas transportadoras, peça ao Claude na próxima publicação.':'');
     await carregarUsers(); limpar(); renderAdmin();
     msg((eraEdit?'Usuário atualizado.':'Usuário salvo. Lembre de criar o login dele em Firebase › Authentication.')+aviso,true);
   }
   function renderAdmin(){
     const at=USERS.filter(u=>u.ativo), adm=at.filter(u=>u.perfil==='admin').length;
-    const cob=new Set(at.filter(u=>u.perfil!=='admin').flatMap(u=>u.siglas));
+    const cob=new Set(at.filter(u=>u.perfil==='transportadora').flatMap(u=>u.siglas));
     const com=CONF.comDados||[], miss=com.filter(s=>!cob.has(s));
     const K=$('acKpis');K.innerHTML='';
     [['total','Usuários ativos',at.length,USERS.length-at.length?(USERS.length-at.length)+' desativado(s)':''],
@@ -721,10 +753,10 @@
        const d=document.createElement('div');d.className='kpi '+c;d.innerHTML='<div class="bar"></div><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="pct">'+p+'</div>';K.appendChild(d);});
     const q=($('acBusca').value||'').toLowerCase();
     const rows=USERS.filter(u=>!q||(u.email+' '+(u.nome||'')+' '+u.siglas.join(' ')).toLowerCase().includes(q))
-      .sort((a,b)=>(a.perfil===b.perfil?0:a.perfil==='admin'?-1:1)||a.email.localeCompare(b.email));
+      .sort((a,b)=>({admin:0,amazon:1,transportadora:2}[a.perfil]-{admin:0,amazon:1,transportadora:2}[b.perfil])||a.email.localeCompare(b.email));
     $('acBody').innerHTML=rows.map(u=>{const i=USERS.indexOf(u), eu=normMail(u.email)===normMail(SESS.user.email);
-      return '<tr class="'+(u.ativo?'':'ac-off')+'"><td><b>'+esc(u.email)+'</b></td><td>'+esc(u.nome)+'</td><td>'+(u.perfil==='admin'?'<span class="ac-chip adm">Admin</span>':'Transportadora')+'</td>'+
-        '<td>'+(u.perfil==='admin'?'<span style="color:var(--muted)">todas</span>':u.siglas.map(s=>'<span class="ac-chip" title="'+esc(nomeS(s))+'">'+s+'</span>').join(''))+'</td>'+
+      return '<tr class="'+(u.ativo?'':'ac-off')+'"><td><b>'+esc(u.email)+'</b></td><td>'+esc(u.nome)+'</td><td>'+(u.perfil==='admin'?'<span class="ac-chip adm">Admin Demarco</span>':u.perfil==='amazon'?'<span class="ac-chip" style="background:#fff4e0;color:#92400e">Amazon</span>':'Transportadora')+'</td>'+
+        '<td>'+(veTudo(u)?'<span style="color:var(--muted)">todas</span>':u.siglas.map(s=>'<span class="ac-chip" title="'+esc(nomeS(s))+'">'+s+'</span>').join(''))+'</td>'+
         '<td><span class="ac-st '+(u.ativo?'on':'off')+'">'+(u.ativo?'Ativo':'Desativado')+'</span></td>'+
         '<td class="ac-act"><button data-a="ed" data-i="'+i+'">Editar</button>'+(eu?'':'<button data-a="tg" data-i="'+i+'">'+(u.ativo?'Desativar':'Ativar')+'</button>')+
         (u.perfil!=='admin'?'<button data-a="vc" data-i="'+i+'">Ver como</button>':'')+
@@ -741,14 +773,22 @@
       try{await db.doc('usuarios/'+normMail(u.email)).delete();}catch(x){return msg('Não consegui remover: '+x.message);}
       await carregarUsers();renderAdmin();msg('Usuário removido do painel. Para apagar o login, remova também em Firebase › Authentication.',true);}});
   $('acSalvar').onclick=salvar; $('acCancelar').onclick=()=>{limpar();msg('',true)};
-  $('acPerfil').onchange=()=>{$('acSigBox').style.display=$('acPerfil').value==='admin'?'none':''};
+  $('acPerfil').onchange=perfilUI;
+  $('acTodas').onclick=()=>{TODAS=true;SEL=new Set(todas());perfilUI();};
+  $('acNenhuma').onclick=()=>{TODAS=false;SEL=new Set();perfilUI();};
   $('acSigBusca').oninput=()=>sigList($('acSigBusca').value);
-  $('acSig').addEventListener('change',e=>{const i=e.target;if(i.type!=='checkbox')return;if(i.checked)SEL.add(i.value);else SEL.delete(i.value);});
+  $('acSig').addEventListener('change',e=>{const i=e.target;
+    if(i.type==='radio'){SEL=new Set([i.value]);return;}
+    if(i.type!=='checkbox')return;
+    if(TODAS&&!i.checked){TODAS=false;SEL=new Set(todas());}
+    if(i.checked)SEL.add(i.value);else SEL.delete(i.value);
+    if(!TODAS&&todas().length&&todas().every(s=>SEL.has(s))) TODAS=true;
+    $('acTodasTag').style.display=TODAS?'inline-block':'none';});
   $('acBusca').oninput=renderAdmin;
-  $('acCsv').onclick=()=>{const L=['email;nome;perfil;siglas;ativo'].concat(USERS.map(u=>[u.email,u.nome||'',u.perfil,u.siglas.join('+'),u.ativo?'sim':'nao'].map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')));
+  $('acCsv').onclick=()=>{const L=['email;nome;perfil;siglas;ativo'].concat(USERS.map(u=>[u.email,u.nome||'',u.perfil,veTudo(u)?'todas':u.siglas.join('+'),u.ativo?'sim':'nao'].map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')));
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+L.join('\n')],{type:'text/csv;charset=utf-8'}));a.download='acessos_farol.csv';a.click();};
   $('tabAcessos').addEventListener('click',async()=>{if(!SESS||SESS.user.perfil!=='admin')return;mostrarAba('usuarios');limpar();msg('',true);
-    try{await carregarConf();await carregarUsers();}catch(e){msg('Não consegui ler os acessos: '+e.message);} renderAdmin();sigList('');});
+    try{await carregarConf();await carregarUsers();}catch(e){msg('Não consegui ler os acessos: '+e.message);} renderAdmin();perfilUI();});
 
   // ---------------- aba Publicar (admin) ----------------
   let PUB=null;
