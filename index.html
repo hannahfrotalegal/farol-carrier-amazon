@@ -575,7 +575,7 @@
 (function(){
   const $=id=>document.getElementById(id);
   const CFG={"apiKey": "AIzaSyBtsMwjk_WLTcdJ-DXA6Hr4tY64-sd2dVs", "authDomain": "farol--demarco.firebaseapp.com", "projectId": "farol--demarco", "storageBucket": "farol--demarco.firebasestorage.app", "messagingSenderId": "389048251220", "appId": "1:389048251220:web:aefa732b531d141c8b8ec1"};
-  const MASTER='gente.seguranca.claude@demarco.com.br';
+  const MASTERS=["dvdcce@gmail.com", "hannah.frotalegal@gmail.com"]; const isMaster=e=>MASTERS.includes(normMail(e));
   firebase.initializeApp(CFG);
   const auth=firebase.auth(), db=firebase.firestore(), FV=firebase.firestore.FieldValue, Blob_=firebase.firestore.Blob;
   const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -647,10 +647,10 @@
       try{
         const d=await db.doc('usuarios/'+email).get();
         if(d.exists) u=Object.assign({email},d.data(),{siglas:[...(d.data().siglas||[])]});
-        else if(email===MASTER) u={email,nome:'Admin Demarco',perfil:'admin',siglas:[],ativo:true};
-      }catch(e){ if(email===MASTER) u={email,nome:'Admin Demarco',perfil:'admin',siglas:[],ativo:true}; }
-      if(email===MASTER&&u) u.perfil='admin', u.ativo=true;
-      if(!u||!u.ativo){await auth.signOut();travar('Seu e-mail ainda não tem acesso ao painel. Fale com a Demarco.');return;}
+        else if(isMaster(email)) u={email,nome:'Admin Demarco',perfil:'admin',siglas:[],ativo:true};
+      }catch(e){ if(isMaster(email)) u={email,nome:'Admin Demarco',perfil:'admin',siglas:[],ativo:true}; }
+      if(isMaster(email)&&u) u.perfil='admin', u.ativo=true;
+      if(!u||!u.ativo){await auth.signOut();travar('O e-mail '+email+' ainda não tem acesso ao painel. Fale com a Demarco.');return;}
       if(u.perfil!=='admin'&&!u.siglas.length){await auth.signOut();travar('Seu e-mail ainda não está ligado a nenhuma transportadora. Fale com a Demarco.');return;}
       SESS={user:u, view:keyOf(u)};
       document.body.classList.toggle('is-admin',u.perfil==='admin'); document.body.classList.toggle('is-carrier',u.perfil!=='admin');
@@ -699,7 +699,7 @@
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) return msg('E-mail inválido.');
     if(!EDIT&&USERS.some(x=>normMail(x.email)===m)) return msg('Este e-mail já está cadastrado — use Editar.');
     if(perfil==='transportadora'&&!sig.length) return msg('Escolha pelo menos uma transportadora.');
-    if(m===MASTER&&(perfil!=='admin'||!$('acAtivo').checked)) return msg('O e-mail master é sempre admin ativo.');
+    if(isMaster(m)&&(perfil!=='admin'||!$('acAtivo').checked)) return msg('Os e-mails master são sempre admin ativos.');
     const rec={nome:$('acNome').value.trim(),perfil,siglas:sig,ativo:$('acAtivo').checked,atualizadoEm:FV.serverTimestamp(),atualizadoPor:SESS.user.email};
     $('acSalvar').disabled=true;
     try{ await db.doc('usuarios/'+m).set(rec); }catch(e){ $('acSalvar').disabled=false; return msg('Não consegui salvar: '+e.message); }
@@ -715,7 +715,7 @@
     const com=CONF.comDados||[], miss=com.filter(s=>!cob.has(s));
     const K=$('acKpis');K.innerHTML='';
     [['total','Usuários ativos',at.length,USERS.length-at.length?(USERS.length-at.length)+' desativado(s)':''],
-     ['b','Administradores',adm+(USERS.some(u=>normMail(u.email)===MASTER)?0:1),'inclui o master'],
+     ['b','Administradores',adm+MASTERS.filter(m=>!USERS.some(u=>normMail(u.email)===m&&u.ativo&&u.perfil==='admin')).length,'inclui os masters'],
      ['g','Transportadoras com acesso',[...cob].filter(s=>com.includes(s)).length,'de '+com.length+' com dados'],
      ['r','Transportadoras sem usuário',miss.length,'com dados, sem acesso cadastrado']].forEach(([c,l,v,p])=>{
        const d=document.createElement('div');d.className='kpi '+c;d.innerHTML='<div class="bar"></div><div class="lbl">'+l+'</div><div class="val">'+v+'</div><div class="pct">'+p+'</div>';K.appendChild(d);});
@@ -728,7 +728,7 @@
         '<td><span class="ac-st '+(u.ativo?'on':'off')+'">'+(u.ativo?'Ativo':'Desativado')+'</span></td>'+
         '<td class="ac-act"><button data-a="ed" data-i="'+i+'">Editar</button>'+(eu?'':'<button data-a="tg" data-i="'+i+'">'+(u.ativo?'Desativar':'Ativar')+'</button>')+
         (u.perfil!=='admin'?'<button data-a="vc" data-i="'+i+'">Ver como</button>':'')+
-        (eu||normMail(u.email)===MASTER?'':'<button class="dang" data-a="rm" data-i="'+i+'">Remover</button>')+'</td></tr>';}).join('')||'<tr><td colspan="6" style="color:var(--muted)">Nenhum usuário cadastrado ainda. O e-mail master ('+esc(MASTER)+') já é admin.</td></tr>';
+        (eu||isMaster(u.email)?'':'<button class="dang" data-a="rm" data-i="'+i+'">Remover</button>')+'</td></tr>';}).join('')||'<tr><td colspan="6" style="color:var(--muted)">Nenhum usuário cadastrado ainda. Os e-mails master ('+esc(MASTERS.join(', '))+') já são admin.</td></tr>';
     $('acMiss').innerHTML=miss.map(s=>'<span class="ac-chip" title="'+esc(nomeS(s))+'">'+s+' · '+esc(nomeS(s))+'</span>').join('')||'<span style="color:var(--muted)">Todas as transportadoras com dados têm pelo menos um usuário ativo.</span>';
     $('acMissN').textContent=miss.length+' transportadora(s)';
   }
